@@ -3,9 +3,11 @@
  * Creates the app, draws shapes with the Graphics API, and uses WASD to move the camera (world container).
  */
 import { Application, Assets, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { Grid } from './grid';
 
 // Spritesheet: place rogues.png in public/sprites/ so it is served at /sprites/rogues.png
 const ROGUES_SPRITESHEET_URL = '/sprites/rogues.png';
+const TILE_SPRITESHEET_URL = '/sprites/tiles.png';
 
 async function main(): Promise<void> {
   // --- Create and configure the PixiJS application ---
@@ -15,7 +17,8 @@ async function main(): Promise<void> {
   await app.init({
     background: '#1a1a2e',   // Dark blue background
     resizeTo: window,        // Canvas fills the browser window and resizes with it
-    antialias: true,         // Smooth edges on shapes and sprites
+    antialias: false,        // Pixel art: no smoothing
+    roundPixels: true,       // Snap rendering to whole pixels to avoid seams
   });
 
   // Attach the canvas so it appears in the page
@@ -26,6 +29,16 @@ async function main(): Promise<void> {
   app.stage.eventMode = 'static'; // allow stage to receive pointer events for hit testing
   app.stage.addChild(world);
 
+  const grid = new Grid(world,	10, 10, 32);
+  const tileTexture = await Assets.load(TILE_SPRITESHEET_URL);
+  tileTexture.source.scaleMode = 'nearest';
+  for (let y = 0; y < grid.height; y++) {
+    for (let x = 0; x < grid.width; x++) {
+      const frameIndex = Math.floor(Math.random() * 4) + 0; // 1..4
+      grid.setTile(x, y, { walkable: true, sprite: new Sprite(new Texture({ source: tileTexture.source, frame: new Rectangle(frameIndex * 32, 6 * 32, 32, 32) })) });
+    }
+  }
+  
   // --- Sprite from spritesheet (top-left 32x32 at world position 0,0) ---
   const sheetTexture = await Assets.load(ROGUES_SPRITESHEET_URL);
   sheetTexture.source.scaleMode = 'nearest'; // Point filtering for crisp pixel art
@@ -36,19 +49,11 @@ async function main(): Promise<void> {
   const sprite = new Sprite(frameTexture);
   sprite.x = 0;
   sprite.y = 0;
-  sprite.scale.set(4); // 4x scale (32x32 → 128x128 on screen)
+  sprite.zIndex = 100;
   sprite.eventMode = 'static'; // enable hit testing and pointer events
   sprite.cursor = 'pointer';
   sprite.on('pointertap', () => console.log('Sprite was clicked'));
   world.addChild(sprite);
-
-  // --- Draw shapes using the Graphics API ---
-  const balls = new Graphics();
-  balls.circle(200, 200, 60);
-  balls.fill(0x00d9ff);
-  balls.roundRect(350, 140, 120, 120, 12);
-  balls.fill(0xff6b6b);
-  world.addChild(balls);
 
   // --- WASD keyboard: track which keys are held for smooth camera movement ---
   const keys: Record<string, boolean> = { w: false, a: false, s: false, d: false };
@@ -60,6 +65,11 @@ async function main(): Promise<void> {
       e.preventDefault();
       keys[key] = true;
       console.log(`Key pressed: ${key.toUpperCase()}`);
+
+      if (key === 'd') sprite.x += 32;
+      if (key === 'a') sprite.x -= 32;
+      if (key === 'w') sprite.y -= 32;
+      if (key === 's') sprite.y += 32;
     }
   });
 
@@ -138,13 +148,10 @@ async function main(): Promise<void> {
   const cameraSpeed = 4;
   app.ticker.add((ticker) => {
     const dt = ticker.deltaTime;
-    balls.rotation += dt * 0.01;
+
 
     // Move world in opposite direction of input (moving world left = camera right)
-    if (keys['d']) world.x -= cameraSpeed * dt;
-    if (keys['a']) world.x += cameraSpeed * dt;
-    if (keys['w']) world.y += cameraSpeed * dt;
-    if (keys['s']) world.y -= cameraSpeed * dt;
+
   });
 }
 
