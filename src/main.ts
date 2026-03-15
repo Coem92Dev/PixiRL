@@ -2,10 +2,17 @@
  * PixiJS entry point.
  * Creates the app, draws shapes with the Graphics API, and uses WASD to move the camera (world container).
  */
-import { Application, Assets, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture, Ticker } from 'pixi.js';
+
+import { CameraController } from './cameraController';
+import { Node } from './nodes'
 
 // Spritesheet: place rogues.png in public/sprites/ so it is served at /sprites/rogues.png
+const MAP_URL = '/sprites/isle_of_mysteries.png';
 const ROGUES_SPRITESHEET_URL = '/sprites/rogues.png';
+let targetX = 0
+let targetY = 0
+
 
 async function main(): Promise<void> {
   // --- Create and configure the PixiJS application ---
@@ -26,7 +33,28 @@ async function main(): Promise<void> {
   app.stage.eventMode = 'static'; // allow stage to receive pointer events for hit testing
   app.stage.addChild(world);
 
-  // --- Sprite from spritesheet (top-left 32x32 at world position 0,0) ---
+
+  const mapTexture = await Assets.load(MAP_URL);
+  const mapSprite = new Sprite(mapTexture);
+  mapSprite.anchor.set(0.5);
+  mapSprite.x = 0;
+  mapSprite.y = 0;
+  world.addChild(mapSprite);
+
+  let homenode: Node = new Node(world, -63, 318)
+
+
+  let n1: Node = new Node(world, 964, 17)
+  let n2: Node = new Node(world, -100, 100)
+
+  n1.addNode(homenode)
+  homenode.addNode(n1)
+  homenode.addNode(n2)
+  Node.onMoveTo = moveto
+  await homenode.init()
+  await n2.init()
+  await n1.init()
+
   const sheetTexture = await Assets.load(ROGUES_SPRITESHEET_URL);
   sheetTexture.source.scaleMode = 'nearest'; // Point filtering for crisp pixel art
   const frameTexture = new Texture({
@@ -34,118 +62,46 @@ async function main(): Promise<void> {
     frame: new Rectangle(0, 0, 32, 32),
   });
   const sprite = new Sprite(frameTexture);
-  sprite.x = 0;
-  sprite.y = 0;
-  sprite.scale.set(4); // 4x scale (32x32 → 128x128 on screen)
-  sprite.eventMode = 'static'; // enable hit testing and pointer events
-  sprite.cursor = 'pointer';
-  sprite.on('pointertap', () => console.log('Sprite was clicked'));
+  sprite.zIndex = 10
+  sprite.x = homenode.x;
+  sprite.y = homenode.y;
+  targetX = homenode.x;
+  targetY = homenode.y;
   world.addChild(sprite);
 
-  // --- Draw shapes using the Graphics API ---
-  const balls = new Graphics();
-  balls.circle(200, 200, 60);
-  balls.fill(0x00d9ff);
-  balls.roundRect(350, 140, 120, 120, 12);
-  balls.fill(0xff6b6b);
-  world.addChild(balls);
+  const ticker = new Ticker();
 
-  // --- WASD keyboard: track which keys are held for smooth camera movement ---
-  const keys: Record<string, boolean> = { w: false, a: false, s: false, d: false };
-  const wasdKeys: readonly string[] = ['w', 'a', 's', 'd'];
-
-  window.addEventListener('keydown', (e) => {
-    const key = e.key.toLowerCase();
-    if (wasdKeys.includes(key)) {
-      e.preventDefault();
-      keys[key] = true;
-      console.log(`Key pressed: ${key.toUpperCase()}`);
-    }
+  ticker.add((ticker) => {
+    sprite.x += (targetX - sprite.x)*ticker.deltaTime*0.1
+    sprite.y += (targetY - sprite.y)*ticker.deltaTime*0.1
+   
   });
 
-  window.addEventListener('keyup', (e) => {
-    const key = e.key.toLowerCase();
-    if (wasdKeys.includes(key)) {
-      keys[key] = false;
-    }
+  ticker.start()
+
+  // --- Mouse position label (top-left, fixed on screen) ---
+  const mouseLabel = new Text({
+    text: '0, 0',
+    style: { fontFamily: 'system-ui', fontSize: 14, fill: 0, stroke: 0xeeeeee, fontWeight: 800 },
+  });
+  mouseLabel.x = 10;
+  mouseLabel.y = 10;
+  mouseLabel.zIndex = 1000;
+  app.stage.addChild(mouseLabel);
+
+  app.stage.on('pointermove', (e) => {
+    const worldX = (e.global.x - world.x) / world.scale.x;
+    const worldY = (e.global.y - world.y) / world.scale.y;
+    mouseLabel.text = `${Math.round(worldX)}, ${Math.round(worldY)}`;
   });
 
-  // --- Zoom: mouse wheel + Q/E, zoom toward center of screen ---
-  const minZoom = 0.25;
-  const maxZoom = 4;
-  const zoomSpeed = 0.001;
-  const keyZoomSpeed = 0.02;
-
-  function applyZoom(delta: number): void {
-    const cx = app.screen.width / 2;
-    const cy = app.screen.height / 2;
-    const scale = world.scale.x;
-    const worldX = (cx - world.x) / scale;
-    const worldY = (cy - world.y) / scale;
-    const newScale = Math.min(maxZoom, Math.max(minZoom, scale + delta));
-    world.scale.set(newScale);
-    world.x = cx - worldX * newScale;
-    world.y = cy - worldY * newScale;
-  }
-
-  app.canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    applyZoom(-e.deltaY * zoomSpeed);
-  }, { passive: false });
-
-  // --- Pan camera by dragging with the mouse (left button) ---
-  let isDragging = false;
-  let dragStartX = 0;
-  let dragStartY = 0;
-  let worldStartX = 0;
-  let worldStartY = 0;
-
-  app.canvas.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return; // left button only
-    isDragging = true;
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-    worldStartX = world.x;
-    worldStartY = world.y;
-  });
-
-  window.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-    world.x = worldStartX + (e.clientX - dragStartX);
-    world.y = worldStartY + (e.clientY - dragStartY);
-  });
-
-  window.addEventListener('mouseup', (e) => {
-    if (e.button === 0) isDragging = false;
-  });
-
-  window.addEventListener('mouseleave', () => {
-    isDragging = false;
-  });
-
-  window.addEventListener('keydown', (e) => {
-    const key = e.key.toLowerCase();
-    if (key === 'e') {
-      e.preventDefault();
-      applyZoom(keyZoomSpeed);
-    } else if (key === 'q') {
-      e.preventDefault();
-      applyZoom(-keyZoomSpeed);
-    }
-  });
-
-  // --- Animation loop: rotate shapes and move camera (world) with WASD ---
-  const cameraSpeed = 4;
-  app.ticker.add((ticker) => {
-    const dt = ticker.deltaTime;
-    balls.rotation += dt * 0.01;
-
-    // Move world in opposite direction of input (moving world left = camera right)
-    if (keys['d']) world.x -= cameraSpeed * dt;
-    if (keys['a']) world.x += cameraSpeed * dt;
-    if (keys['w']) world.y += cameraSpeed * dt;
-    if (keys['s']) world.y -= cameraSpeed * dt;
-  });
+  // --- Camera controller: handles WASD movement, zoom, and drag panning ---
+  new CameraController(app, world);
+}
+function moveto(node: Node) {
+  console.log("moving to node at: [" + node.x + ", " + node.y + "]")
+  targetX = node.x
+  targetY = node.y
 }
 
 // Start the app; any init error is logged to the console
